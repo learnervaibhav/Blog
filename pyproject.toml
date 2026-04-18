@@ -1,0 +1,26 @@
+[project]
+name = "Blog"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiosmtplib>=5.1.0",
+    "aiosqlite>=0.22.1",
+    "alembic>=1.18.4",
+    "boto>=2.49.0",
+    "fastapi[standard]>=0.136.0",
+    "greenlet>=3.4.0",
+    "pillow>=12.2.0",
+    "psycopg[binary]>=3.3.3",
+    "pwdlib[argon2]>=0.3.0",
+    "pydantic-settings>=2.13.1",
+    "pyjwt>=2.12.1",
+    "sqlalchemy>=2.0.49",
+]
+
+[dependency-groups]
+dev = [
+    "moto[s3]>=5.1.22",
+    "pytest>=9.0.3",
+]
