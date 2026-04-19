@@ -1,21 +1,20 @@
+import asyncio
 import os
 from collections.abc import AsyncGenerator
 
 os.environ["DATABASE_URL"] = (
     "postgresql+psycopg://bloguser:blogpass@localhost/test_blog"
 )
-
-os.environ["S3_BUCKET_NAME"]= "test_bucket"
-os.environ["SECRET_KEY"]="test-secret-key-for-testing-only"
+os.environ["S3_BUCKET_NAME"] = "test-bucket"
+os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
 
 os.environ["S3_ACCESS_KEY_ID"] = "testing"
 os.environ["S3_SECRET_ACCESS_KEY"] = "testing"
-os.environ["S3_REGION"] = "ap-south-1"
+os.environ["S3_REGION"] = "us-east-1"
 
 os.environ["AWS_ACCESS_KEY_ID"] = "testing"
 os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
-os.environ["AWS_DEFAULT_REGION"] = "ap-south-1"
-
+os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
 import boto3
 import pytest
@@ -27,13 +26,18 @@ from sqlalchemy.pool import NullPool
 from database import Base, get_db
 from main import app
 
-
 pytest_plugins = ["anyio"]
 
 
+# Psycopg async requires SelectorEventLoop on Windows.
+if os.name == "nt":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 @pytest.fixture(scope="session")
-def anyio_backned():
+def anyio_backend():
     return "asyncio"
+
 
 @pytest.fixture(scope="session")
 def test_engine():
@@ -42,6 +46,7 @@ def test_engine():
         poolclass=NullPool,
     )
     return engine
+
 
 @pytest.fixture(scope="session")
 async def setup_database(test_engine):
@@ -54,8 +59,9 @@ async def setup_database(test_engine):
         await conn.run_sync(Base.metadata.drop_all)
 
     await test_engine.dispose()
-    
-@pytest.fixture       # it is function scoped such that it remain independent
+
+
+@pytest.fixture
 async def db_session(
     test_engine,
     setup_database,
@@ -69,8 +75,7 @@ async def db_session(
         expire_on_commit=False,
         join_transaction_mode="create_savepoint",
     )
-    
-    
+
     async with test_async_session() as session:
         try:
             yield session
@@ -79,14 +84,14 @@ async def db_session(
             await trans.rollback()
             await conn.close()
 
-            
+
 @pytest.fixture
 def mocked_aws():
     with mock_aws():
-        s3 = boto3.client("s3", region_name="ap-south-1")
+        s3 = boto3.client("s3", region_name="us-east-1")
         s3.create_bucket(Bucket=os.environ["S3_BUCKET_NAME"])
         yield s3
-        
+
 
 @pytest.fixture
 async def client(
@@ -106,7 +111,7 @@ async def client(
         yield ac
 
     app.dependency_overrides.clear()
-    
+
 
 async def create_test_user(
     client: AsyncClient,
@@ -144,5 +149,3 @@ async def login_user(
 
 def auth_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
-
-

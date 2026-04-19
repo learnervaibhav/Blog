@@ -13,3 +13,4 @@ wheels/
 .env
 .python-version
 snippets.txt
+populate_images/

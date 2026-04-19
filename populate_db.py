@@ -1,24 +1,26 @@
+import os
 import asyncio
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
+from PIL import UnidentifiedImageError
 from sqlalchemy import delete, select, update
 
 import models
-from database import AsyncSessionLocal, Base, engine
-from image_utils import PROFILE_PICS_DIR
+from config import settings
+from database import AsyncSessionLocal, engine
+from image_utils import _get_s3_client, process_profile_image
 from main import app
 
 POPULATE_IMAGES_DIR = Path("populate_images")
 
 USERS = [
     {
-        "username": "CoreyMSchafer",
-        "email": "CoreyMSchafer@gmail.com",
+        "username": "Vaibhav",
+        "email": "Vaibhav@gmail.com",
         "password": "TestPassword1!",
-        "image": "corey.png",
+        "image": "1.jpg",
     },
     {
         "username": "DefaultDude",
@@ -27,28 +29,28 @@ USERS = [
         # No image - uses default
     },
     {
-        "username": "WillowTheCat",
+        "username": "Anu",
         "email": "TestEmail3@test.com",
         "password": "TestPassword3!",
-        "image": "willow.png",
+        "image": "2.jpg",
     },
     {
-        "username": "FarmDogs",
+        "username": "Utkarsh",
         "email": "TestEmail4@test.com",
         "password": "TestPassword4!",
-        "image": "farmdogs.png",
+        "image": "3.jpg",
     },
     {
-        "username": "PoppyTheCoder",
+        "username": "Anukriti",
         "email": "TestEmail5@test.com",
         "password": "TestPassword5!",
-        "image": "poppy.png",
+        "image": "4.jpg",
     },
     {
-        "username": "GoodBoyBronx",
+        "username": "Khushi",
         "email": "TestEmail6@test.com",
         "password": "TestPassword6!",
-        "image": "bronx.png",
+        "image": "6.jpg",
     },
 ]
 
@@ -58,16 +60,8 @@ POSTS = [
         "content": "FastAPI has completely changed how I build APIs. The automatic documentation, type hints, and async support make development so much faster. Plus, the performance is incredible!",
     },
     {
-        "title": "Corey Schafer Has the Best YouTube Tutorials!",
-        "content": "This was written by a viewer and definitely not by me... I mean him. Totally not written by him, but by me... a real viewer. Seriously, check out his channel for amazing Python content.",
-    },
-    {
         "title": "Async/Await Finally Clicked",
         "content": "I've been struggling with async programming for months, but FastAPI's approach finally made it click. Using 'async def' for endpoints and 'await' for database calls just makes sense.",
-    },
-    {
-        "title": "Schafer? I Barely Know Her!",
-        "content": "Is anyone actually reading these blog posts? Do they really need to say anything? I can keep going all day. At least AI can... Claude, keep going, please.",
     },
     {
         "title": "Pydantic Validation is Magic",
@@ -76,10 +70,6 @@ POSTS = [
     {
         "title": "From Flask to FastAPI",
         "content": "I made the switch from Flask to FastAPI last month. The learning curve was minimal, and the benefits are huge. Automatic OpenAPI docs, better performance, and native async support. No regrets!",
-    },
-    {
-        "title": "Some of My Favorite Horror Movies",
-        "content": "I love horror movies and practical effects. One of my favorites is 'The Thing'. Hereditary is a great modern one, but most people have seen it. One modern one I really liked that not as many people have seen is 'The Night House'. It's a slow burn but really effective. More psychological than jump-scare based.",
     },
     {
         "title": "Type Hints Changed My Life",
@@ -94,16 +84,8 @@ POSTS = [
         "content": "If you're still using SQLAlchemy 1.x patterns, it's time to upgrade. The new 2.0 style with select() and mapped_column() is much more explicit and works beautifully with async.",
     },
     {
-        "title": "Hot Take: Python > JavaScript for APIs",
-        "content": "Yes, I said it. For backend APIs, Python with FastAPI beats Node.js. Fight me in the comments. (Just kidding, this blog doesn't have comments... yet.)",
-    },
-    {
         "title": "Understanding HTTP Status Codes",
         "content": "200 OK, 201 Created, 400 Bad Request, 404 Not Found, 500 Internal Server Error. Learn these codes - they're how your API communicates with the world. FastAPI makes it easy to return the right ones.",
-    },
-    {
-        "title": "Some of My Favorite Video Games",
-        "content": "The one I probably play the most, but not my favorite, is League of Legends... It's a love/hate relationship. If you play, you get it. My favorites are all single-player RPGs. The Elder Scrolls series (Especially Morrowind and Skyrim) were awesome. The Baldur's Gate series took up a lot of my time as a kid, and more recently, the 3rd one was great. Speaking of Baldur's Gate, I love that old isometric style of RPG, so I looked for more modern equivalents and found Pillars of Eternity, which was fantastic. Also both Pathfinder: Kingmaker and Wrath of the Righteous were a lot of fun as well.",
     },
     {
         "title": "JWT Authentication Demystified",
@@ -126,10 +108,6 @@ POSTS = [
         "content": "UV is blazingly fast for Python package management. Install packages in milliseconds instead of minutes. If you haven't tried it yet, you're missing out!",
     },
     {
-        "title": "What About Favorite Books?",
-        "content": "I don't read a lot of fiction. The last fiction book I read was 'The Martian' by Andy Weir, which I really enjoyed. But most of my reading is non-fiction. Some of my favorites are 'Meditations' by Marcus Aurelius, 'Conscious' by Annaka Harris, 'How to Die' by Seneca, and 'The Last Lecture' by Randy Pausch. The latest fiction book I'm reading through (and have been for a while) is 'House of Leaves' by Mark Z. Danielewski. It's... different, but awesome.",
-    },
-    {
         "title": "Testing FastAPI Applications",
         "content": "FastAPI's TestClient makes testing a breeze. Write tests for your endpoints, mock dependencies, and catch bugs before they hit production. Your future self will thank you.",
     },
@@ -150,10 +128,6 @@ POSTS = [
         "content": "Response models aren't just for documentation - they filter out sensitive fields automatically. Define what goes out, and Pydantic handles the rest.",
     },
     {
-        "title": "Let's Talk Board Games",
-        "content": "I love Settlers of Catan. It's a classic for a reason. I'm actually going to make a sword in my woodshop soon that will be my friend group's trophy for the annual Catan champion that we're going to call 'The Katana of Catan'. One thing I've always wanted to do, but never have, is play an in-person Dungeons & Dragons campaign. I've played so many D&D inspired video games, but never the real deal. Hopefully someday...",
-    },
-    {
         "title": "API Versioning Strategies",
         "content": "APIs evolve. Version them from day one! Whether you use URL prefixes (/v1/users) or headers, plan for change. Breaking changes without versioning breaks trust.",
     },
@@ -172,10 +146,6 @@ POSTS = [
     {
         "title": "WebSockets with FastAPI",
         "content": "REST isn't the only game in town. FastAPI supports WebSockets for real-time communication. Chat apps, live updates, notifications - all possible!",
-    },
-    {
-        "title": "Favorite Hobbies, You Ask?",
-        "content": "Woodworking, hands down. I love making things with wood, but I wish I had more time for it. There's something special about making something with your own hands, with materials that are local. A lot of the stuff I've built came from trees that fell on my family's property. My stuff might not always be as good as something you buy in a store, but there's a story and a connection there that makes it better than anything I could buy elsewhere.",
     },
     {
         "title": "Custom Validators in Pydantic",
@@ -227,26 +197,26 @@ POSTS = [
     },
 ]
 
-
-def configure_windows_event_loop() -> None:
-    policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
-    if sys.platform.startswith("win") and policy is not None:
-        asyncio.set_event_loop_policy(policy())
-
 # The 44th post - always the oldest (easter egg for pagination tutorial)
-POST_44 = {
-    "title": "Fun Fact: My High School Football Number Was #44",
-    "content": "If you've paginated all the way to this post, the 44th one... you get to learn this fun fact: that my high school football number was #44. Other notable absolute legends who wore number #44 include: Jerry West (NBA - Also fellow WV Native), Hank Aaron (MLB), and Floyd Little (NFL).",
-}
 
+if os.name == 'nt':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 async def clear_existing_data() -> None:
-    # Delete profile pictures from local storage
-    if PROFILE_PICS_DIR.exists():
-        for file in PROFILE_PICS_DIR.iterdir():
-            if file.is_file() and file.name != ".gitkeep":
-                file.unlink()
-        print(f"Deleted profile pictures from {PROFILE_PICS_DIR}")
+    # Delete profile pictures from S3 (need DB records to know which files)
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(models.User.image_file).where(models.User.image_file.is_not(None)),
+        )
+        filenames = result.scalars().all()
+
+    if filenames:
+        s3 = _get_s3_client()
+        s3.delete_objects(
+            Bucket=settings.s3_bucket_name,
+            Delete={"Objects": [{"Key": f"profile_pics/{f}"} for f in filenames]},
+        )
+        print(f"Deleted {len(filenames)} images from S3")
 
     # Clear database tables (order respects foreign keys)
     async with AsyncSessionLocal() as db:
@@ -292,15 +262,11 @@ async def update_post_dates() -> None:
 async def populate() -> None:
     transport = httpx.ASGITransport(app=app)
 
-    # Create tables up front so cleanup queries don't fail on a fresh DB.
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://localhost",
     ) as client:
-        # Clear existing data (local images first, then database)
+        # Clear existing data (S3 images first, then database)
         await clear_existing_data()
 
         users: list[dict] = []
@@ -332,17 +298,31 @@ async def populate() -> None:
             if image_name := user_data.get("image"):
                 image_path = POPULATE_IMAGES_DIR / image_name
                 if image_path.exists():
+                    raw_bytes = image_path.read_bytes()
+                    try:
+                        # API rejects files larger than max_upload_size_bytes, so pre-shrink first.
+                        upload_bytes, _ = process_profile_image(raw_bytes)
+                    except UnidentifiedImageError as err:
+                        raise RuntimeError(
+                            f"Invalid seed image: {image_path}",
+                        ) from err
+
                     response = await client.patch(
                         f"/api/users/{user['id']}/picture",
                         files={
                             "file": (
                                 image_name,
-                                image_path.read_bytes(),
-                                "image/png",
+                                upload_bytes,
+                                "image/jpeg",
                             ),
                         },
                         headers={"Authorization": f"Bearer {token}"},
                     )
+                    if response.status_code >= 400:
+                        raise RuntimeError(
+                            f"Failed to upload {image_name}: "
+                            f"{response.status_code} {response.text}",
+                        )
                     response.raise_for_status()
                     print(f"    Uploaded: {image_name}")
 
@@ -352,14 +332,6 @@ async def populate() -> None:
 
         print(f"\nCreating {len(POSTS) + 1} posts...")
 
-        # First create POST_44 (will become oldest after date update)
-        response = await client.post(
-            "/api/posts",
-            json={"title": POST_44["title"], "content": POST_44["content"]},
-            headers={"Authorization": f"Bearer {users[0]['token']}"},
-        )
-        response.raise_for_status()
-        print(f"  Created: '{POST_44['title']}'")
 
         # Create remaining posts in reverse (last in list = oldest, first = newest)
         for i, post_data in enumerate(reversed(POSTS)):
@@ -388,9 +360,8 @@ async def populate() -> None:
     print("\nDone!")
     print(f"  {len(USERS)} users")
     print(f"  {len(POSTS) + 1} posts")
-    print("  Profile pictures saved locally")
+    print("  Profile pictures uploaded to S3")
 
 
 if __name__ == "__main__":
-    configure_windows_event_loop()
     asyncio.run(populate())
