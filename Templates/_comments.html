@@ -1,0 +1,194 @@
+<section class="content-section py-3 px-4 mb-4" id="commentsSection">
+    <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+        <div>
+            <h3 class="h5 mb-1">Comments</h3>
+            <p class="text-body-secondary mb-0" id="commentsMeta">Loading comments...</p>
+        </div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Comment sort">
+            <button type="button" class="btn btn-outline-secondary active" id="sortNewestBtn">Newest</button>
+            <button type="button" class="btn btn-outline-secondary" id="sortOldestBtn">Oldest</button>
+        </div>
+    </div>
+
+    <form id="commentForm" class="mb-4">
+        <label for="commentContent" class="form-label">Add a comment</label>
+        <textarea class="form-control mb-2" id="commentContent" name="content" rows="3" maxlength="1000" placeholder="Write your comment..."></textarea>
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+            <small class="text-body-secondary" id="commentHint">Sign in to post a comment.</small>
+            <button type="submit" class="btn btn-primary" id="submitCommentBtn">Post Comment</button>
+        </div>
+    </form>
+
+    <div id="commentsList" class="d-grid gap-3"></div>
+
+    <div class="text-center mt-4 d-none" id="loadMoreCommentsWrap">
+        <button type="button" class="btn btn-outline-primary" id="loadMoreCommentsBtn">Load More Comments</button>
+    </div>
+</section>
+
+<script type="module">
+import { getCurrentUser, getToken } from '/static/js/auth.js';
+import { escapeHtml, formatDate, getErrorMessage } from '/static/js/utils.js';
+
+const postId = {{ post.id }};
+const commentsList = document.getElementById('commentsList');
+const commentsMeta = document.getElementById('commentsMeta');
+const commentForm = document.getElementById('commentForm');
+const commentContent = document.getElementById('commentContent');
+const submitCommentBtn = document.getElementById('submitCommentBtn');
+const commentHint = document.getElementById('commentHint');
+const loadMoreCommentsWrap = document.getElementById('loadMoreCommentsWrap');
+const loadMoreCommentsBtn = document.getElementById('loadMoreCommentsBtn');
+const sortNewestBtn = document.getElementById('sortNewestBtn');
+const sortOldestBtn = document.getElementById('sortOldestBtn');
+
+let currentOffset = 0;
+const pageSize = 5;
+let hasMoreComments = false;
+let currentSort = 'new';
+
+function renderComment(comment) {
+    return `
+        <article class="border rounded-3 p-3 bg-body-tertiary">
+            <div class="d-flex align-items-start gap-3">
+                <img class="rounded-circle flex-shrink-0"
+                     src="${escapeHtml(comment.author.image_path)}"
+                     alt="${escapeHtml(comment.author.username)}'s profile picture"
+                     width="48"
+                     height="48"
+                     loading="lazy">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-1">
+                        <a class="fw-semibold text-decoration-none" href="/users/${comment.author.id}/posts">${escapeHtml(comment.author.username)}</a>
+                        <small class="text-body-secondary">${formatDate(comment.date_posted)}</small>
+                    </div>
+                    <p class="mb-0">${escapeHtml(comment.content)}</p>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function setSortButtons(sortValue) {
+    sortNewestBtn.classList.toggle('active', sortValue === 'new');
+    sortOldestBtn.classList.toggle('active', sortValue === 'old');
+}
+
+function updateCommentControls(hasUser) {
+    if (hasUser) {
+        commentHint.textContent = 'Your comment will be posted with your account.';
+        commentContent.disabled = false;
+        submitCommentBtn.disabled = false;
+        return;
+    }
+
+    commentHint.textContent = 'Sign in to post a comment.';
+    commentContent.disabled = true;
+    submitCommentBtn.disabled = true;
+}
+
+async function loadComments({ reset = false } = {}) {
+    if (reset) {
+        currentOffset = 0;
+        commentsList.innerHTML = '';
+    }
+
+    commentsMeta.textContent = 'Loading comments...';
+    loadMoreCommentsBtn.disabled = true;
+
+    try {
+        const response = await fetch(
+            `/api/posts/${postId}/comments?skip=${currentOffset}&limit=${pageSize}&sort=${currentSort}`,
+        );
+
+        if (!response.ok) {
+            throw new Error('Failed to load comments');
+        }
+
+        const data = await response.json();
+
+        if (data.comments.length === 0 && currentOffset === 0) {
+            commentsList.innerHTML = '<p class="text-body-secondary mb-0">No comments yet. Be the first to comment.</p>';
+        } else {
+            for (const comment of data.comments) {
+                commentsList.insertAdjacentHTML('beforeend', renderComment(comment));
+            }
+        }
+
+        currentOffset += data.comments.length;
+        hasMoreComments = data.has_more;
+        commentsMeta.textContent = `${data.total} comment${data.total === 1 ? '' : 's'}`;
+        loadMoreCommentsWrap.classList.toggle('d-none', !hasMoreComments);
+        loadMoreCommentsBtn.disabled = false;
+    } catch (error) {
+        commentsMeta.textContent = 'Could not load comments.';
+        loadMoreCommentsBtn.disabled = false;
+        console.error('Error loading comments:', error);
+    }
+}
+
+commentForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const token = getToken();
+    if (!token) {
+        window.location.href = '/login';
+        return;
+    }
+
+    const content = commentContent.value.trim();
+    if (!content) {
+        return;
+    }
+
+    try {
+        submitCommentBtn.disabled = true;
+        const response = await fetch(`/api/posts/${postId}/comments`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ content }),
+        });
+
+        if (response.status === 401) {
+            window.location.href = '/login';
+            return;
+        }
+
+        if (!response.ok) {
+            const error = await response.json();
+            document.getElementById('errorMessage').textContent = getErrorMessage(error);
+            showModal('errorModal');
+            return;
+        }
+
+        commentContent.value = '';
+        await loadComments({ reset: true });
+    } catch (error) {
+        document.getElementById('errorMessage').textContent = 'Network error. Please try again.';
+        showModal('errorModal');
+    } finally {
+        submitCommentBtn.disabled = false;
+    }
+});
+
+loadMoreCommentsBtn.addEventListener('click', () => loadComments());
+sortNewestBtn.addEventListener('click', async () => {
+    currentSort = 'new';
+    setSortButtons('new');
+    await loadComments({ reset: true });
+});
+sortOldestBtn.addEventListener('click', async () => {
+    currentSort = 'old';
+    setSortButtons('old');
+    await loadComments({ reset: true });
+});
+
+(async () => {
+    const user = await getCurrentUser();
+    updateCommentControls(Boolean(user));
+    await loadComments({ reset: true });
+})();
+</script>

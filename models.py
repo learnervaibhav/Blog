@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from database import Base
 from config import settings
+from database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -22,6 +23,11 @@ class User(Base):
     )
 
     posts: Mapped[list[Post]] = relationship(
+        back_populates="author",
+        cascade="all, delete-orphan",
+    )
+
+    comments: Mapped[list[CommentSection]] = relationship(
         back_populates="author",
         cascade="all, delete-orphan",
     )
@@ -56,6 +62,10 @@ class Post(Base):
     likes: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     author: Mapped[User] = relationship(back_populates="posts")
+    comments: Mapped[list[CommentSection]] = relationship(
+        back_populates="post",
+        cascade="all, delete-orphan",
+    )
 
 
 class PasswordResetToken(Base):
@@ -74,3 +84,19 @@ class PasswordResetToken(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="reset_tokens")
+
+
+class CommentSection(Base):
+    __tablename__ = "comments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id"), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    date_posted: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
+
+    author: Mapped[User] = relationship(back_populates="comments")
+    post: Mapped[Post] = relationship(back_populates="comments")

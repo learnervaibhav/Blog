@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+# User Pydantic Schema
 
 class UserBase(BaseModel):
     username: str = Field(min_length=1, max_length=50)
@@ -35,6 +36,8 @@ class Token(BaseModel):
     token_type: str
 
 
+# Posts Pydantic Schema
+
 class PostBase(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     content: str = Field(min_length=1)
@@ -65,6 +68,7 @@ class PaginatedPostsResponse(BaseModel):
     limit: int
     has_more: bool
 
+# ForgotPassword Pydantic Schema
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr = Field(max_length=120)
@@ -78,3 +82,29 @@ class ResetPasswordRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8)
+
+
+# Comments Pydantic Schema
+
+class CommentBase(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+
+class CommentCreate(CommentBase):
+    content: str = Field(min_length=1, max_length=1000)
+
+class CommentResponse(CommentBase):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    user_id: int
+    post_id: int
+    date_posted: datetime
+    author: UserPublic
+    
+class PaginatedCommentResponse(BaseModel):
+    comments: list[CommentResponse]
+    total: int
+    skip: int
+    limit: int
+    has_more: bool
+
